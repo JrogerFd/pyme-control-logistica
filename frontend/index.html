@@ -3,119 +3,415 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PymeControl - Gestión de Inventario</title>
+  <title>PymeControl - Plataforma Comercial de Logística</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    .glass { background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(12px); }
+    .animate-fade-in { animation: fadeIn 0.3s ease-out forwards; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+  </style>
 </head>
-<body class="bg-gray-100 text-gray-800">
-  <div id="app" class="min-h-screen flex flex-col">
-    <!-- Navbar -->
-    <header class="bg-blue-600 text-white shadow-md p-4 flex justify-between items-center">
-      <h1 class="text-xl font-bold tracking-wide">📦 PymeControl Logística</h1>
-      <span class="bg-blue-700 text-xs px-3 py-1 rounded-full font-mono">Estado: Conectado</span>
-    </header>
-
-    <!-- Main Content -->
-    <main class="flex-1 p-6 max-w-6xl w-full mx-auto space-y-6">
-      <!-- Tarjetas de Métricas -->
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div class="bg-white p-5 rounded-lg shadow border-l-4 border-blue-500">
-          <p class="text-gray-500 text-sm">Total Productos</p>
-          <p id="total-productos" class="text-2xl font-bold mt-1">0</p>
-        </div>
-        <div class="bg-white p-5 rounded-lg shadow border-l-4 border-yellow-500">
-          <p class="text-gray-500 text-sm">Alertas Stock Bajo (RF-03)</p>
-          <p id="stock-bajo" class="text-2xl font-bold text-yellow-600 mt-1">0</p>
-        </div>
-        <div class="bg-white p-5 rounded-lg shadow border-l-4 border-green-500">
-          <p class="text-gray-500 text-sm">Valor del Inventario</p>
-          <p id="valor-total" class="text-2xl font-bold text-green-600 mt-1">$0.00</p>
-        </div>
-      </div>
-
-      <!-- Tabla de Productos -->
-      <div class="bg-white rounded-lg shadow overflow-hidden">
-        <div class="p-4 border-b flex justify-between items-center">
-          <h2 class="text-lg font-semibold text-gray-700">Catálogo de Productos (RF-01)</h2>
-          <button onclick="cargarProductos()" class="bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded transition">
-            🔄 Actualizar Datos
-          </button>
-        </div>
-        <div class="overflow-x-auto">
-          <table class="w-full text-left border-collapse">
-            <thead>
-              <tr class="bg-gray-50 text-gray-600 text-xs uppercase border-b">
-                <th class="p-3">Código</th>
-                <th class="p-3">Nombre</th>
-                <th class="p-3">Categoría</th>
-                <th class="p-3">Stock</th>
-                <th class="p-3">P. Venta</th>
-                <th class="p-3">Estado</th>
-              </tr>
-            </thead>
-            <tbody id="tabla-productos" class="divide-y text-sm">
-              <tr>
-                <td colspan="6" class="p-4 text-center text-gray-400">Cargando productos...</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </main>
-
-    <footer class="bg-gray-200 text-center text-xs text-gray-500 py-3">
-      PymeControl v1.0 &copy; 2026 - Universidad Autónoma Juan Misael Saracho
-    </footer>
-  </div>
+<body class="bg-slate-950 text-slate-100 antialiased font-sans">
+  <div id="root" class="min-h-screen flex flex-col"></div>
 
   <script>
-    async function cargarProductos() {
+    // ESTADO GLOBAL Y PERSISTENCIA DE SESIÓN
+    let state = {
+      user: JSON.parse(localStorage.getItem('pyme_user')) || null,
+      token: localStorage.getItem('pyme_token') || null,
+      activeTab: 'dashboard',
+      sidebarOpen: true,
+      productos: [],
+      busqueda: '',
+      filtroCategoria: 'todas',
+      modalProducto: { open: false, modo: 'crear', data: {} },
+      loading: false,
+      loginError: '',
+      loginLoading: false
+    };
+
+    function setState(newState) {
+      state = { ...state, ...newState };
+      render();
+    }
+
+    // ACCIONES DE AUTENTICACIÓN
+    async function login(email, password) {
+      setState({ loginLoading: true, loginError: '' });
       try {
-        const res = await fetch('http://localhost:4000/api/productos');
-        const productos = await res.json();
-        
-        const tbody = document.getElementById('tabla-productos');
-        let total = 0;
-        let bajoStock = 0;
-        let valorTotal = 0;
+        const res = await fetch('http://localhost:4000/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Error al autenticar');
 
-        if (productos.length === 0) {
-          tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-gray-500">No hay productos registrados aún.</td></tr>`;
-        } else {
-          tbody.innerHTML = productos.map(p => {
-            total++;
-            const esStockBajo = p.stock <= (p.stockMinimo || 5);
-            if (esStockBajo) bajoStock++;
-            valorTotal += (p.stock * p.precioVenta);
+        localStorage.setItem('pyme_token', data.token);
+        localStorage.setItem('pyme_user', JSON.stringify(data.usuario));
 
-            return `
-              <tr class="hover:bg-gray-50">
-                <td class="p-3 font-mono font-medium">${p.codigo}</td>
-                <td class="p-3 font-semibold text-gray-800">${p.nombre}</td>
-                <td class="p-3 text-gray-500">${p.categoria || 'Gral.'}</td>
-                <td class="p-3 font-bold ${esStockBajo ? 'text-red-600' : 'text-gray-700'}">${p.stock}</td>
-                <td class="p-3">$${parseFloat(p.precioVenta).toFixed(2)}</td>
-                <td class="p-3">
-                  <span class="px-2 py-1 text-xs rounded-full ${esStockBajo ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}">
-                    ${esStockBajo ? '⚠️ Stock Bajo' : '✔ Normal'}
-                  </span>
-                </td>
-              </tr>
-            `;
-          }).join('');
-        }
-
-        document.getElementById('total-productos').innerText = total;
-        document.getElementById('stock-bajo').innerText = bajoStock;
-        document.getElementById('valor-total').innerText = `$${valorTotal.toFixed(2)}`;
-
+        setState({ user: data.usuario, token: data.token, loginLoading: false });
+        cargarProductos();
       } catch (err) {
-        document.getElementById('tabla-productos').innerHTML = `
-          <tr><td colspan="6" class="p-4 text-center text-red-500 font-semibold">Error al conectar con la API de PymeControl.</td></tr>
-        `;
+        setState({ loginError: err.message, loginLoading: false });
       }
     }
 
-    cargarProductos();
+    function logout() {
+      localStorage.removeItem('pyme_token');
+      localStorage.removeItem('pyme_user');
+      setState({ user: null, token: null, productos: [] });
+    }
+
+    // OPERACIONES API PRODUCTOS
+    async function cargarProductos() {
+      try {
+        const res = await fetch('http://localhost:4000/api/productos');
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          setState({ productos: data });
+        }
+      } catch (err) {
+        console.error('Error al cargar productos:', err);
+      }
+    }
+
+    async function guardarProducto(e) {
+      e.preventDefault();
+      const form = e.target;
+      const payload = {
+        codigo: form.codigo.value,
+        nombre: form.nombre.value,
+        categoria: form.categoria.value,
+        precioCompra: parseFloat(form.precioCompra.value),
+        precioVenta: parseFloat(form.precioVenta.value),
+        stock: parseInt(form.stock.value),
+        stockMinimo: parseInt(form.stockMinimo.value || 5),
+        proveedor: form.proveedor.value
+      };
+
+      const isEdit = state.modalProducto.modo === 'editar';
+      const url = isEdit ? `http://localhost:4000/api/productos/${state.modalProducto.data.id}` : 'http://localhost:4000/api/productos';
+      const method = isEdit ? 'PUT' : 'POST';
+
+      try {
+        const res = await fetch(url, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (res.ok) {
+          cerrarModal();
+          cargarProductos();
+        }
+      } catch (err) {
+        alert('Error al procesar la solicitud');
+      }
+    }
+
+    async function eliminarProducto(id) {
+      if (!confirm('¿Seguro que deseas eliminar este producto?')) return;
+      try {
+        await fetch(`http://localhost:4000/api/productos/${id}`, { method: 'DELETE' });
+        cargarProductos();
+      } catch (err) {
+        alert('Error al eliminar');
+      }
+    }
+
+    function abrirModalCrear() {
+      setState({ modalProducto: { open: true, modo: 'crear', data: {} } });
+    }
+
+    function abrirModalEditar(prod) {
+      setState({ modalProducto: { open: true, modo: 'editar', data: prod } });
+    }
+
+    function cerrarModal() {
+      setState({ modalProducto: { open: false, modo: 'crear', data: {} } });
+    }
+
+    // RENDERIZADO VISTAS
+    function renderLogin() {
+      return `
+        <div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-blue-950 p-4">
+          <div class="w-full max-w-md bg-slate-900/80 border border-slate-800 rounded-2xl shadow-2xl p-8 backdrop-blur-xl animate-fade-in">
+            <div class="flex flex-col items-center mb-6">
+              <div class="h-12 w-12 rounded-xl bg-blue-600 flex items-center justify-center text-white mb-3 shadow-lg shadow-blue-500/30">
+                <i data-lucide="box"></i>
+              </div>
+              <h2 class="text-2xl font-bold tracking-tight text-white">PymeControl Logística</h2>
+              <p class="text-xs text-slate-400 mt-1">Plataforma Comercial de Gestión de Inventario</p>
+            </div>
+
+            ${state.loginError ? `<div class="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-xs flex items-center gap-2"><i data-lucide="alert-circle" class="w-4 h-4"></i>${state.loginError}</div>` : ''}
+
+            <form onsubmit="event.preventDefault(); login(this.email.value, this.password.value);" class="space-y-4">
+              <div>
+                <label class="block text-xs font-semibold text-slate-300 mb-1">Correo Electrónico</label>
+                <input type="email" name="email" value="admin@pymecontrol.com" required class="w-full bg-slate-950/60 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-blue-500 transition">
+              </div>
+
+              <div>
+                <label class="block text-xs font-semibold text-slate-300 mb-1">Contraseña</label>
+                <input type="password" name="password" value="admin123" required class="w-full bg-slate-950/60 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-blue-500 transition">
+              </div>
+
+              <button type="submit" ${state.loginLoading ? 'disabled' : ''} class="w-full bg-blue-600 hover:bg-blue-500 text-white font-medium py-2.5 rounded-lg text-sm shadow-lg shadow-blue-600/30 transition flex items-center justify-center gap-2 mt-2">
+                ${state.loginLoading ? `<i data-lucide="loader" class="w-4 h-4 animate-spin"></i> Autenticando...` : `Iniciar Sesión <i data-lucide="arrow-right" class="w-4 h-4"></i>`}
+              </button>
+            </form>
+
+            <div class="mt-6 pt-4 border-t border-slate-800 text-center">
+              <span class="text-xs text-slate-500">Credenciales Demo: <strong>admin@pymecontrol.com</strong> / <strong>admin123</strong></span>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderDashboard() {
+      const prods = state.productos;
+      const total = prods.length;
+      const bajoStock = prods.filter(p => p.stock <= (p.stockMinimo || 5) && p.stock > 0).length;
+      const sinStock = prods.filter(p => p.stock === 0).length;
+      const valorTotal = prods.reduce((acc, p) => acc + (p.stock * parseFloat(p.precioVenta || 0)), 0);
+
+      // Filtros
+      const categorias = ['todas', ...new Set(prods.map(p => p.categoria || 'Gral.'))];
+      const productosFiltrados = prods.filter(p => {
+        const coincideBusqueda = p.nombre.toLowerCase().includes(state.busqueda.toLowerCase()) || p.codigo.toLowerCase().includes(state.busqueda.toLowerCase());
+        const coincideCat = state.filtroCategoria === 'todas' || (p.categoria || 'Gral.') === state.filtroCategoria;
+        return coincideBusqueda && coincideCat;
+      });
+
+      return `
+        <div class="min-h-screen flex bg-slate-950 text-slate-100">
+          <!-- SIDEBAR -->
+          <aside class="${state.sidebarOpen ? 'w-64' : 'w-20'} bg-slate-900 border-r border-slate-800 flex flex-col transition-all duration-300">
+            <div class="p-4 border-b border-slate-800 flex items-center justify-between">
+              <div class="flex items-center gap-3 ${!state.sidebarOpen && 'hidden'}">
+                <div class="h-8 w-8 rounded-lg bg-blue-600 flex items-center justify-center font-bold text-white shadow-md">P</div>
+                <span class="font-bold text-sm tracking-wide">PymeControl</span>
+              </div>
+              <button onclick="setState({ sidebarOpen: !state.sidebarOpen })" class="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800">
+                <i data-lucide="menu" class="w-5 h-5"></i>
+              </button>
+            </div>
+
+            <nav class="flex-1 p-3 space-y-1">
+              ${[
+                { id: 'dashboard', label: 'Dashboard', icon: 'layout-dashboard' },
+                { id: 'inventario', label: 'Inventario / Productos', icon: 'package' },
+                { id: 'pos', label: 'Punto de Venta (POS)', icon: 'shopping-cart' },
+                { id: 'reportes', label: 'Reportes Finanzas', icon: 'bar-chart-3' },
+                { id: 'config', label: 'Configuración', icon: 'settings' }
+              ].map(item => `
+                <button onclick="setState({ activeTab: '${item.id}' })" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition ${state.activeTab === item.id ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'}">
+                  <i data-lucide="${item.icon}" class="w-5 h-5 min-w-[20px]"></i>
+                  <span class="${!state.sidebarOpen ? 'hidden' : ''}">${item.label}</span>
+                </button>
+              `).join('')}
+            </nav>
+
+            <div class="p-3 border-t border-slate-800">
+              <button onclick="logout()" class="w-full flex items-center gap-3 px-3 py-2 text-red-400 hover:bg-red-500/10 rounded-lg text-sm transition">
+                <i data-lucide="log-out" class="w-5 h-5"></i>
+                <span class="${!state.sidebarOpen ? 'hidden' : ''}">Cerrar Sesión</span>
+              </button>
+            </div>
+          </aside>
+
+          <!-- CONTENIDO PRINCIPAL -->
+          <div class="flex-1 flex flex-col min-w-0">
+            <!-- HEADER -->
+            <header class="h-16 bg-slate-900/50 border-b border-slate-800 px-6 flex items-center justify-between backdrop-blur-md">
+              <div class="flex items-center gap-2">
+                <h1 class="text-base font-semibold capitalize">${state.activeTab}</h1>
+              </div>
+
+              <div class="flex items-center gap-3">
+                <div class="text-right">
+                  <p class="text-xs font-semibold text-slate-200">${state.user?.nombre || 'Usuario'}</p>
+                  <span class="text-[10px] bg-blue-500/20 text-blue-400 border border-blue-500/30 px-2 py-0.5 rounded-full capitalize">${state.user?.rol || 'Rol'}</span>
+                </div>
+                <div class="h-9 w-9 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center font-bold text-xs text-blue-400">
+                  ${(state.user?.nombre || 'U').substring(0,2).toUpperCase()}
+                </div>
+              </div>
+            </header>
+
+            <!-- CONTENIDO DE PESTAÑAS -->
+            <main class="flex-1 p-6 overflow-y-auto space-y-6">
+              ${state.activeTab === 'dashboard' || state.activeTab === 'inventario' ? `
+                <!-- RESÚMENES Y MÉTRICAS -->
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-sm">
+                    <p class="text-xs font-medium text-slate-400">Total Productos</p>
+                    <p class="text-2xl font-bold mt-1 text-white">${total}</p>
+                  </div>
+                  <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-sm">
+                    <p class="text-xs font-medium text-slate-400">Stock Bajo (RF-03)</p>
+                    <p class="text-2xl font-bold mt-1 text-yellow-400">${bajoStock}</p>
+                  </div>
+                  <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-sm">
+                    <p class="text-xs font-medium text-slate-400">Sin Stock</p>
+                    <p class="text-2xl font-bold mt-1 text-red-400">${sinStock}</p>
+                  </div>
+                  <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-sm">
+                    <p class="text-xs font-medium text-slate-400">Valor Inventario</p>
+                    <p class="text-2xl font-bold mt-1 text-emerald-400">$${valorTotal.toFixed(2)}</p>
+                  </div>
+                </div>
+
+                <!-- CONTROLES Y TABLA DE PRODUCTOS -->
+                <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm">
+                  <div class="p-4 border-b border-slate-800 flex flex-col md:flex-row gap-3 justify-between items-center">
+                    <div class="flex items-center gap-2 w-full md:w-auto">
+                      <div class="relative flex-1 md:w-64">
+                        <i data-lucide="search" class="w-4 h-4 absolute left-3 top-2.5 text-slate-500"></i>
+                        <input type="text" placeholder="Buscar por código o nombre..." value="${state.busqueda}" oninput="setState({ busqueda: this.value })" class="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-blue-500">
+                      </div>
+
+                      <select onchange="setState({ filtroCategoria: this.value })" class="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-blue-500 capitalize">
+                        ${categorias.map(c => `<option value="${c}" ${state.filtroCategoria === c ? 'selected' : ''}>Categoría: ${c}</option>`).join('')}
+                      </select>
+                    </div>
+
+                    <button onclick="abrirModalCrear()" class="bg-blue-600 hover:bg-blue-500 text-white px-3.5 py-1.5 rounded-lg text-xs font-medium shadow-md shadow-blue-600/20 flex items-center gap-1.5 transition w-full md:w-auto justify-center">
+                      <i data-lucide="plus" class="w-4 h-4"></i> Nuevo Producto
+                    </button>
+                  </div>
+
+                  <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr class="bg-slate-950/60 text-slate-400 uppercase border-b border-slate-800">
+                          <th class="p-3">Código</th>
+                          <th class="p-3">Nombre</th>
+                          <th class="p-3">Categoría</th>
+                          <th class="p-3">P. Compra</th>
+                          <th class="p-3">P. Venta</th>
+                          <th class="p-3">Stock</th>
+                          <th class="p-3">Estado</th>
+                          <th class="p-3 text-right">Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody class="divide-y divide-slate-800/60">
+                        ${productosFiltrados.length === 0 ? `<tr><td colspan="8" class="p-6 text-center text-slate-500">No se encontraron productos en el inventario.</td></tr>` : ''}
+                        ${productosFiltrados.map(p => {
+                          const esSinStock = p.stock === 0;
+                          const esStockBajo = p.stock <= (p.stockMinimo || 5) && !esSinStock;
+                          return `
+                            <tr class="hover:bg-slate-800/30 transition">
+                              <td class="p-3 font-mono text-slate-300 font-semibold">${p.codigo}</td>
+                              <td class="p-3 font-medium text-slate-100">${p.nombre}</td>
+                              <td class="p-3 text-slate-400">${p.categoria || 'Gral.'}</td>
+                              <td class="p-3 text-slate-400">$${parseFloat(p.precioCompra || 0).toFixed(2)}</td>
+                              <td class="p-3 font-semibold text-slate-200">$${parseFloat(p.precioVenta || 0).toFixed(2)}</td>
+                              <td class="p-3 font-bold ${esSinStock ? 'text-red-400' : esStockBajo ? 'text-yellow-400' : 'text-slate-200'}">${p.stock}</td>
+                              <td class="p-3">
+                                ${esSinStock ? `<span class="bg-red-500/10 text-red-400 border border-red-500/20 px-2 py-0.5 rounded-full text-[10px]">Agotado</span>` :
+                                  esStockBajo ? `<span class="bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 px-2 py-0.5 rounded-full text-[10px]">Stock Bajo</span>` :
+                                  `<span class="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full text-[10px]">Normal</span>`}
+                              </td>
+                              <td class="p-3 text-right space-x-1">
+                                <button onclick='abrirModalEditar(${JSON.stringify(p)})' class="p-1 text-slate-400 hover:text-blue-400 rounded transition"><i data-lucide="edit-3" class="w-4 h-4"></i></button>
+                                <button onclick="eliminarProducto(${p.id})" class="p-1 text-slate-400 hover:text-red-400 rounded transition"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                              </td>
+                            </tr>
+                          `;
+                        }).join('')}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ` : `
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-8 text-center text-slate-400">
+                  <i data-lucide="construction" class="w-10 h-10 mx-auto text-blue-500 mb-2"></i>
+                  <h3 class="text-base font-semibold text-slate-200 capitalize">Módulo ${state.activeTab}</h3>
+                  <p class="text-xs text-slate-500 mt-1">Estructura preparada para integración modular con la API de PymeControl.</p>
+                </div>
+              `}
+            </main>
+          </div>
+        </div>
+
+        <!-- MODAL AGREGAR / EDITAR PRODUCTO -->
+        ${state.modalProducto.open ? `
+          <div class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
+            <div class="bg-slate-900 border border-slate-800 rounded-xl max-w-lg w-full p-6 shadow-2xl">
+              <div class="flex justify-between items-center pb-3 border-b border-slate-800 mb-4">
+                <h3 class="text-sm font-bold text-white capitalize">${state.modalProducto.modo} Producto</h3>
+                <button onclick="cerrarModal()" class="text-slate-400 hover:text-white"><i data-lucide="x" class="w-5 h-5"></i></button>
+              </div>
+
+              <form onsubmit="guardarProducto(event)" class="space-y-3">
+                <div class="grid grid-cols-2 gap-3">
+                  <div>
+                    <label class="block text-[11px] font-semibold text-slate-300 mb-1">Código</label>
+                    <input type="text" name="codigo" value="${state.modalProducto.data.codigo || ''}" required class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200">
+                  </div>
+                  <div>
+                    <label class="block text-[11px] font-semibold text-slate-300 mb-1">Nombre</label>
+                    <input type="text" name="nombre" value="${state.modalProducto.data.nombre || ''}" required class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200">
+                  </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                  <div>
+                    <label class="block text-[11px] font-semibold text-slate-300 mb-1">Categoría</label>
+                    <input type="text" name="categoria" value="${state.modalProducto.data.categoria || 'Abarrotes'}" required class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200">
+                  </div>
+                  <div>
+                    <label class="block text-[11px] font-semibold text-slate-300 mb-1">Proveedor</label>
+                    <input type="text" name="proveedor" value="${state.modalProducto.data.proveedor || ''}" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200">
+                  </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                  <div>
+                    <label class="block text-[11px] font-semibold text-slate-300 mb-1">Precio Compra ($)</label>
+                    <input type="number" step="0.01" name="precioCompra" value="${state.modalProducto.data.precioCompra || ''}" required class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200">
+                  </div>
+                  <div>
+                    <label class="block text-[11px] font-semibold text-slate-300 mb-1">Precio Venta ($)</label>
+                    <input type="number" step="0.01" name="precioVenta" value="${state.modalProducto.data.precioVenta || ''}" required class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200">
+                  </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                  <div>
+                    <label class="block text-[11px] font-semibold text-slate-300 mb-1">Stock Actual</label>
+                    <input type="number" name="stock" value="${state.modalProducto.data.stock ?? 10}" required class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200">
+                  </div>
+                  <div>
+                    <label class="block text-[11px] font-semibold text-slate-300 mb-1">Stock Mínimo (Alerta)</label>
+                    <input type="number" name="stockMinimo" value="${state.modalProducto.data.stockMinimo ?? 5}" required class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200">
+                  </div>
+                </div>
+
+                <div class="pt-3 border-t border-slate-800 flex justify-end gap-2">
+                  <button type="button" onclick="cerrarModal()" class="px-3 py-1.5 rounded-lg border border-slate-800 text-xs text-slate-400 hover:bg-slate-800">Cancelar</button>
+                  <button type="submit" class="bg-blue-600 hover:bg-blue-500 text-white px-4 py-1.5 rounded-lg text-xs font-medium shadow-md shadow-blue-600/20">Guardar Producto</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        ` : ''}
+      `;
+    }
+
+    function render() {
+      const root = document.getElementById('root');
+      root.innerHTML = state.token ? renderDashboard() : renderLogin();
+      lucide.createIcons();
+    }
+
+    // INICIALIZAR APLICACIÓN
+    render();
+    if (state.token) cargarProductos();
   </script>
 </body>
 </html>
