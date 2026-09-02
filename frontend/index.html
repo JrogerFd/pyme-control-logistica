@@ -2,16 +2,120 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>PyME Control Logística</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PymeControl - Gestión de Inventario</title>
+  <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body>
-  <h1>Sistema de Control de Logística</h1>
-  <p id="status">Cargando...</p>
+<body class="bg-gray-100 text-gray-800">
+  <div id="app" class="min-h-screen flex flex-col">
+    <!-- Navbar -->
+    <header class="bg-blue-600 text-white shadow-md p-4 flex justify-between items-center">
+      <h1 class="text-xl font-bold tracking-wide">📦 PymeControl Logística</h1>
+      <span class="bg-blue-700 text-xs px-3 py-1 rounded-full font-mono">Estado: Conectado</span>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-1 p-6 max-w-6xl w-full mx-auto space-y-6">
+      <!-- Tarjetas de Métricas -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="bg-white p-5 rounded-lg shadow border-l-4 border-blue-500">
+          <p class="text-gray-500 text-sm">Total Productos</p>
+          <p id="total-productos" class="text-2xl font-bold mt-1">0</p>
+        </div>
+        <div class="bg-white p-5 rounded-lg shadow border-l-4 border-yellow-500">
+          <p class="text-gray-500 text-sm">Alertas Stock Bajo (RF-03)</p>
+          <p id="stock-bajo" class="text-2xl font-bold text-yellow-600 mt-1">0</p>
+        </div>
+        <div class="bg-white p-5 rounded-lg shadow border-l-4 border-green-500">
+          <p class="text-gray-500 text-sm">Valor del Inventario</p>
+          <p id="valor-total" class="text-2xl font-bold text-green-600 mt-1">$0.00</p>
+        </div>
+      </div>
+
+      <!-- Tabla de Productos -->
+      <div class="bg-white rounded-lg shadow overflow-hidden">
+        <div class="p-4 border-b flex justify-between items-center">
+          <h2 class="text-lg font-semibold text-gray-700">Catálogo de Productos (RF-01)</h2>
+          <button onclick="cargarProductos()" class="bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded transition">
+            🔄 Actualizar Datos
+          </button>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse">
+            <thead>
+              <tr class="bg-gray-50 text-gray-600 text-xs uppercase border-b">
+                <th class="p-3">Código</th>
+                <th class="p-3">Nombre</th>
+                <th class="p-3">Categoría</th>
+                <th class="p-3">Stock</th>
+                <th class="p-3">P. Venta</th>
+                <th class="p-3">Estado</th>
+              </tr>
+            </thead>
+            <tbody id="tabla-productos" class="divide-y text-sm">
+              <tr>
+                <td colspan="6" class="p-4 text-center text-gray-400">Cargando productos...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+
+    <footer class="bg-gray-200 text-center text-xs text-gray-500 py-3">
+      PymeControl v1.0 &copy; 2026 - Universidad Autónoma Juan Misael Saracho
+    </footer>
+  </div>
+
   <script>
-    fetch('http://localhost:4000/api/health')
-      .then(res => res.json())
-      .then(data => document.getElementById('status').innerText = data.message)
-      .catch(() => document.getElementById('status').innerText = 'Backend no conectado aún');
+    async function cargarProductos() {
+      try {
+        const res = await fetch('http://localhost:4000/api/productos');
+        const productos = await res.json();
+        
+        const tbody = document.getElementById('tabla-productos');
+        let total = 0;
+        let bajoStock = 0;
+        let valorTotal = 0;
+
+        if (productos.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-gray-500">No hay productos registrados aún.</td></tr>`;
+        } else {
+          tbody.innerHTML = productos.map(p => {
+            total++;
+            const esStockBajo = p.stock <= (p.stockMinimo || 5);
+            if (esStockBajo) bajoStock++;
+            valorTotal += (p.stock * p.precioVenta);
+
+            return `
+              <tr class="hover:bg-gray-50">
+                <td class="p-3 font-mono font-medium">${p.codigo}</td>
+                <td class="p-3 font-semibold text-gray-800">${p.nombre}</td>
+                <td class="p-3 text-gray-500">${p.categoria || 'Gral.'}</td>
+                <td class="p-3 font-bold ${esStockBajo ? 'text-red-600' : 'text-gray-700'}">${p.stock}</td>
+                <td class="p-3">$${parseFloat(p.precioVenta).toFixed(2)}</td>
+                <td class="p-3">
+                  <span class="px-2 py-1 text-xs rounded-full ${esStockBajo ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}">
+                    ${esStockBajo ? '⚠️ Stock Bajo' : '✔ Normal'}
+                  </span>
+                </td>
+              </tr>
+            `;
+          }).join('');
+        }
+
+        document.getElementById('total-productos').innerText = total;
+        document.getElementById('stock-bajo').innerText = bajoStock;
+        document.getElementById('valor-total').innerText = `$${valorTotal.toFixed(2)}`;
+
+      } catch (err) {
+        document.getElementById('tabla-productos').innerHTML = `
+          <tr><td colspan="6" class="p-4 text-center text-red-500 font-semibold">Error al conectar con la API de PymeControl.</td></tr>
+        `;
+      }
+    }
+
+    cargarProductos();
   </script>
 </body>
 </html>
